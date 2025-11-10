@@ -1,10 +1,7 @@
 name: Docker Build and Push
 
 on:
-  push:
-    branches:
-      - main  # Adjust the branch as needed
-  workflow_dispatch: # Allows manual triggering of the workflow
+  workflow_dispatch: 
 
 jobs:
   build-and-push:
