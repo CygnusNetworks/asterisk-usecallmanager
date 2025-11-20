@@ -45,7 +45,7 @@ RUN apt-get -y update && cd /tmp && \
     ./asterisk-config_${ASTERISK_DEBIAN_VERSION}_*.deb \
     ./asterisk-modules_${ASTERISK_DEBIAN_VERSION}_*.deb \
     ./asterisk-mp3_${ASTERISK_DEBIAN_VERSION}_*.deb && \
-    apt-get -y install --no-install-recommends dnsutils tcpdump ngrep procps iputils-ping vim && \
+    apt-get -y install --no-install-recommends dnsutils tcpdump ngrep procps iputils-ping vim mpg123 && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
     apt-get clean
 
