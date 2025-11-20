@@ -1,9 +1,9 @@
 # asterisk-usecallmanager Container image
 
-Container image that builds and runs Asterisk with the cisco-usecallmanager patchset applied, plus sane defaults for SIP/PJSIP. 
+Container image that builds and runs Asterisk with the cisco-usecallmanager patchset applied, plus defaults for SIP/PJSIP to include multiple config files. 
 Designed to let you drop your own Asterisk config in at runtime and have variables expanded automatically.
 
-This image with version 22.6 is not yet intended for production. See https://usecallmanager.nz/ for details regarding `chan_sip` backport.
+**This image with version 22.6 is not yet intended for production. See https://usecallmanager.nz/change-log.html for details regarding `chan_sip` backport including changes to chan_sip.** 
 
 ## Overview
 - Base OS: Debian (slim).
@@ -12,7 +12,7 @@ This image with version 22.6 is not yet intended for production. See https://use
   - remaps the runtime user if requested,
   - auto-detects your public IPv4 address,
   - copies any `*.conf` files from `/config` into `/etc/asterisk`,
-  - performs environment variable substitution (`envsubst`) on those files (except dialplan files), and
+  - performs environment variable substitution (`envsubst`) on those copied files (except dialplan files), and
   - starts Asterisk.
 
 ### Relationship to the UseCallManager project
@@ -25,15 +25,16 @@ Hints and current state as of Asterisk 22.6 (Nov 2025):
 - There have been backports and changes affecting `chan_sip` in the UCM patches. Read the change log linked above and validate your configuration.
 - `chan_sip` might be suitable for connection to Cisco Phones, pjsip for other SIP endpoints.
 
-Note: This repository’s Dockerfile currently builds against Asterisk Debian source version set by `ARG ASTERISK_DEBIAN_VERSION` (default in this repo points to 22.6.0) on Debian Trixie.
+Note: This repository’s Dockerfile currently builds against Asterisk Debian source version set by `ARG ASTERISK_DEBIAN_VERSION` (default in this repo points to 22.6.0 currently) on Debian Trixie.
 
 ## Requirements
 - Docker Engine or compatible runtime.
-- For external RTP media, open/forward a UDP range on your host (commonly 10000–10020) and the SIP signaling port(s) you plan to use.
+- For external RTP media, open/forward a UDP range on your host (commonly 10000–10020) and the SIP signaling port(s) you plan to use. 
+- **If you need lots of parallel channels increase the channel range in rtp.conf and do not use docker proxy for exposing these ports.**
 - Outbound DNS to resolve and query Google’s DNS (used to detect public IP) unless you override `EXTERNAL_IP` yourself.
 
 
-## How configuration works (very important)
+## How configuration works
 At container start, `/docker-entrypoint.sh` performs the following:
 
 1. User/group remap (optional)
@@ -47,22 +48,26 @@ At container start, `/docker-entrypoint.sh` performs the following:
    - The result is exported as `EXTERNAL_IP` for later substitution.
    - If it cannot detect an address and you provided a `/config` directory, the script exits with a non‑zero status. If your environment blocks that DNS query, set `EXTERNAL_IP` explicitly.
 
-3. Config ingestion from `/config`
-   - If a directory `/config` exists, every `*.conf` file under it is copied into `/etc/asterisk` preserving relative paths. For example:
+3. Configuration files
+   - Configuration can be done in two ways (or also be mixed)
+
+3. a) Config ingestion from `/config`
+   - If a directory `/config` exists, every `*.conf` file under it is **copied** into `/etc/asterisk` preserving relative paths. For example:
      - `/config/pjsip.conf` → `/etc/asterisk/pjsip.conf`
      - `/config/pjsip.d/my-peer.conf` → `/etc/asterisk/pjsip.d/my-peer.conf`
    - Variable substitution is applied to all config files via `envsubst`, except dialplan files:
      - Files matching `extensions.conf` or anything under `extensions.d/` are copied verbatim (no substitution) to avoid breaking `${...}` style Asterisk dialplan expressions.
    - All other `.conf` files have shell-style variables expanded using the container’s environment (e.g., `${EXTERNAL_IP}`, `${SIP_BIND_PORT}`, `${WHATEVER}` that you define).
 
-4. Config through volumes files
+3. b) Config through volumes files
    - if you do not provider a `/config` directory, you can also mount your own config files at runtime
    - volume mount your config files for SIP, PJSIP and extensions in directories /etc/asterisk/sip.d, /etc/asterisk/pjsip.d and /etc/asterisk/extensions.d. 
-   - the main config files for SIP, PJSIP and extensions are /etc/asterisk/sip.conf, /etc/asterisk/pjsip.conf and /etc/asterisk/extensions.conf, which use a tryinclude to the subdirectories.
-5. Optional hooks
+   - the main config files for SIP, PJSIP and extensions are /etc/asterisk/sip.conf, /etc/asterisk/pjsip.conf and /etc/asterisk/extensions.conf, which use a tryinclude to the mentioned subdirectories.
+
+4. Optional hooks
    - If `/docker-entrypoint.d/` exists, the script runs all executable parts using `run-parts` before starting Asterisk. This is handy for last-mile tweaks.
 
-6. Ownership and start
+5. Ownership and start
    - Key Asterisk directories are chowned to the runtime user and Asterisk is launched.
 
 Base configs are bundled under `/etc/asterisk` in the image (copied from this repo’s `config/`). Any files you place in `/config` will override or augment those.
@@ -88,6 +93,8 @@ All `*.conf` files there will be read. If you need more control over configs, do
 - `asterisk.conf` - defines verbose = 5, debug = 3, autosystemname = yes
 - `logger.conf` - sets logging to stdout
 - `modules.conf` - disables modules which produce load warnings
+
+All other config files are debian default asterisk config files. If you need to change the loaded modules, override the modules.conf file by a volume mount.
 
 ## Environment variables
 Runtime (entrypoint) variables:
@@ -126,7 +133,8 @@ Notes:
 ```yaml
 services:
   asterisk:
-    image: asterisk-usecallmanager:local  # or your registry image
+    image: cygnusnetworks/asterisk-usecallmanager:latest  
+    # image: ghcr.io/CygnusNetworks/asterisk-usecallmanager:latest # alternative image source 
     container_name: asterisk
     environment:
       # Provide EXTERNAL_IP if your DNS cannot resolve via Google’s o-o.myaddr mechanism
@@ -140,8 +148,6 @@ services:
       SIP_BIND_PORT: "5060"
     volumes:
       - ./my-asterisk-config:/config:ro
-      # Optional: drop-in scripts executed before Asterisk starts
-      # - ./entrypoint.d:/docker-entrypoint.d:ro
     ports:
       - "5060:5060/udp"
       - "5060:5060/tcp"
@@ -149,6 +155,7 @@ services:
     restart: unless-stopped
 ```
 
+Make sure you understand the implications of your network setup and possible ipv4 nat scenarios. 
 
 ## Scripts and hooks
 - `/docker-entrypoint.sh` — main launcher (see “How configuration works”).
@@ -157,7 +164,7 @@ services:
 
 ## Production considerations
 - The UseCallManager patches are powerful but invasive. Validate carefully before deploying to production.
-- As of Asterisk 22.5, UCM-related features and `chan_sip` changes/backports have caveats. Review: https://usecallmanager.nz/change-log.html
+- As of Asterisk 22.6, UCM-related features and `chan_sip` changes/backports have caveats. Review: https://usecallmanager.nz/change-log.html
 - Prefer `pjsip` for new deployments unless you have a specific reason to use `chan_sip`.
 - Pin your image and config versions; test upgrades in a staging environment.
 
@@ -174,11 +181,18 @@ docker build \
   --build-arg DEBIAN_VERSION=trixie \
   --build-arg ASTERISK_DEBIAN_VERSION=22.6.0~dfsg+~cs6.15.60671435-1 \
   --build-arg PATCH_VERSION=22.6.0 \
-  -t asterisk-usecallmanager:22.6-ucm .
+  -t asterisk-usecallmanager:22.6 .
 ```
 
-Adjust the args to match versions provided by Debian and the UCM patchset you want to consume.
-
+Adjust the args to match versions provided by Debian and the usecallmanager patchset you want to consume.
+**Make sure that the debian archive currently hold the ASTERISK_DEBIAN_VERSION which you specified.**
+See: https://packages.debian.org/sid/asterisk for Debian unstable (sid) packages.
 
 ## License
 This repository contains Docker build scripts and example configs. Asterisk itself is licensed under GPLv2; consult Debian packaging and the UseCallManager project for their respective licenses.
+
+## Credits
+
+Many thanks to the UseCallManager project for providing the patches and the maintainer Gareth Palmer.
+
+See: https://github.com/sponsors/usecallmanagernz for sponsorship the project.
