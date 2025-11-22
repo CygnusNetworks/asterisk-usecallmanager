@@ -12,7 +12,7 @@ Designed to let you drop your own Asterisk config in at runtime and have variabl
   - remaps the runtime user if requested,
   - auto-detects your public IPv4 address,
   - copies any `*.conf` files from `/config` into `/etc/asterisk`,
-  - performs environment variable substitution (`envsubst`) on those copied files (except dialplan files), and
+  - performs environment variable substitution (`envsubst`) on those copied files (except dialplan files)
   - starts Asterisk.
 
 ### Relationship to the UseCallManager project
@@ -120,8 +120,8 @@ docker run \
   -v $(pwd)/my-asterisk-config:/config:ro \            # configs to be processed/expanded
   -p 5060:5060/udp \ # SIP signaling udp
   -p 5060:5060/tcp \ # SIP signaling
-  -p 10000-20000:10000-20000/udp \                     # RTP media range (adjust as needed)
-  cygnusbn/asterisk-usecallmanager:latest
+  -p 10000-10020:10000-10020/udp \                     # RTP media range (adjust as needed)
+  cygnusnetworks/asterisk-usecallmanager:latest        # or: ghcr.io/CygnusNetworks/asterisk-usecallmanager:latest
 ```
 
 Notes:
@@ -133,7 +133,7 @@ Notes:
 ```yaml
 services:
   asterisk:
-    image: cygnusnetworks/asterisk-usecallmanager:latest  
+    image: cygnusnetworks/asterisk-usecallmanager:latest 
     # image: ghcr.io/CygnusNetworks/asterisk-usecallmanager:latest # alternative image source 
     container_name: asterisk
     environment:
@@ -163,11 +163,10 @@ Make sure you understand the implications of your network setup and possible ipv
 
 
 ## Production considerations
-- The UseCallManager patches are powerful but invasive. Validate carefully before deploying to production.
-- As of Asterisk 22.6, UCM-related features and `chan_sip` changes/backports have caveats. Review: https://usecallmanager.nz/change-log.html
-- Prefer `pjsip` for new deployments unless you have a specific reason to use `chan_sip`.
-- Pin your image and config versions; test upgrades in a staging environment.
 
+- As of Asterisk 22.6, UCM-related features and `chan_sip` changes/backports have caveats. Review: https://usecallmanager.nz/change-log.html
+- Prefer `pjsip` for other SIP endpoints or sip trunks
+- Pin your image and config versions; test upgrades in a staging environment.
 
 ## Troubleshooting
 - External IP detection fails: set `EXTERNAL_IP` manually (e.g., with compose or `-e`). Ensure outbound DNS works if you rely on autodetect.
@@ -176,6 +175,7 @@ Make sure you understand the implications of your network setup and possible ipv
 
 
 ## Building with a different Asterisk source version or patch
+
 ```bash
 docker build \
   --build-arg DEBIAN_VERSION=trixie \
@@ -195,4 +195,4 @@ This repository contains Docker build scripts and example configs. Asterisk itse
 
 Many thanks to the UseCallManager project for providing the patches and the maintainer Gareth Palmer.
 
-See: https://github.com/sponsors/usecallmanagernz for sponsorship the project.
+See: https://github.com/sponsors/usecallmanagernz for sponsorship of the usecallmanager project.
