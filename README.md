@@ -7,7 +7,7 @@ Designed to let you drop your own Asterisk config in at runtime and have variabl
 
 ## Overview
 - Base OS: Debian (slim).
-- Asterisk packages: built from Debian source and patched with the UseCallManager (UCM) patchset.
+- Asterisk packages: built from Asterisk source and patched with the UseCallManager (UCM) patchset.
 - Entry point: a small bootstrap script that
   - remaps the runtime user if requested,
   - auto-detects your public IPv4 address,
@@ -25,7 +25,7 @@ Hints and current state as of Asterisk 22.6 (Nov 2025):
 - There have been backports and changes affecting `chan_sip` in the UCM patches. Read the change log linked above and validate your configuration.
 - `chan_sip` might be suitable for connection to Cisco Phones, pjsip for other SIP endpoints.
 
-Note: This repository’s Dockerfile currently builds against Asterisk Debian source version set by `ARG ASTERISK_DEBIAN_VERSION` (default in this repo points to 22.6.0 currently) on Debian Trixie.
+Note: This repository’s Dockerfile builds against Asterisk's officially provided sources set by `ARG ASTERISK_VERSION` (default in this repo points to 22.6.0 currently) on Debian Trixie.
 
 ## Requirements
 - Docker Engine or compatible runtime.
@@ -94,7 +94,7 @@ All `*.conf` files there will be read. If you need more control over configs, do
 - `logger.conf` - sets logging to stdout
 - `modules.conf` - disables modules which produce load warnings
 
-All other config files are debian default asterisk config files. If you need to change the loaded modules, override the modules.conf file by a volume mount.
+All other config files are default asterisk config files. If you need to change the loaded modules, override the modules.conf file by a volume mount.
 
 ## Environment variables
 Runtime (entrypoint) variables:
@@ -106,7 +106,7 @@ Runtime (entrypoint) variables:
 
 Build-time (Docker build args):
 - `DEBIAN_VERSION` (default: `trixie`)
-- `ASTERISK_DEBIAN_VERSION` (Debian source version string)
+- `ASTERISK_VERSION` (Asterisk source code version)
 - `PATCH_VERSION` (UCM patch version, e.g., `22.6.0`)
 
 
@@ -179,17 +179,15 @@ Make sure you understand the implications of your network setup and possible ipv
 ```bash
 docker build \
   --build-arg DEBIAN_VERSION=trixie \
-  --build-arg ASTERISK_DEBIAN_VERSION=22.6.0~dfsg+~cs6.15.60671435-1 \
+  --build-arg ASTERISK_VERSION=22.6.0 \
   --build-arg PATCH_VERSION=22.6.0 \
   -t asterisk-usecallmanager:22.6 .
 ```
 
-Adjust the args to match versions provided by Debian and the usecallmanager patchset you want to consume.
-**Make sure that the debian archive currently hold the ASTERISK_DEBIAN_VERSION which you specified.**
-See: https://packages.debian.org/sid/asterisk for Debian unstable (sid) packages.
+Adjust the args to match Asterisk source version and the usecallmanager patchset you want to consume.
 
 ## License
-This repository contains Docker build scripts and example configs. Asterisk itself is licensed under GPLv2; consult Debian packaging and the UseCallManager project for their respective licenses.
+This repository contains Docker build scripts and example configs. Asterisk itself is licensed under GPLv2; consult the UseCallManager project for it's license.
 
 ## Credits
 
