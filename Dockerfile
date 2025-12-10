@@ -1,60 +1,106 @@
 ARG DEBIAN_VERSION=trixie
-ARG ASTERISK_DEBIAN_VERSION=22.6.0~dfsg+~cs6.15.60671435-1
+ARG ASTERISK_VERSION=22.6.0
 ARG PATCH_VERSION=22.6.0
-FROM debian:$DEBIAN_VERSION-slim AS builder
-ARG ASTERISK_DEBIAN_VERSION
+
+# -----------------------------------------------------------------------------
+# Stage 1: Builder
+# -----------------------------------------------------------------------------
+FROM debian:${DEBIAN_VERSION}-slim AS builder
+ARG ASTERISK_VERSION
 ARG PATCH_VERSION
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    devscripts \
-    debhelper \
-    fakeroot \
-    dh-make \
-    dpkg-dev \
-    quilt \
-    git \
-    wget
-
-# Copy source code
+ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /src
 
-RUN dget https://deb.debian.org/debian/pool/main/a/asterisk/asterisk_$ASTERISK_DEBIAN_VERSION.dsc
-RUN wget https://github.com/usecallmanagernz/patches/raw/refs/heads/master/asterisk/cisco-usecallmanager-$PATCH_VERSION.patch
+# Install minimal tools required to fetch source and run Asterisk's prereq script
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    wget \
+    ca-certificates \
+    subversion \
+    patch \
+    pkg-config \
+    libsqlite3-dev \
+    libxml2-dev \
+    libncurses-dev \
+    libssl-dev \
+    uuid-dev \
+    libedit-dev
 
-RUN DEBIAN_FRONTEND=noninteractive mk-build-deps -i asterisk_${ASTERISK_DEBIAN_VERSION}.dsc --tool "apt-get -y"
-RUN UNPACK_DIR=$(ls -d */) && cd $UNPACK_DIR && quilt pop -a && quilt import -P cisco-usecallmanager ../cisco-usecallmanager-${PATCH_VERSION}.patch && quilt push -a && dpkg-buildpackage -us -uc -b
+# Download Asterisk (pipe directly to tar to save space) and the Cisco Patch
+RUN wget -qO- https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${ASTERISK_VERSION}.tar.gz \
+    | tar -xz --strip-components=1 \
+    && wget -q https://github.com/usecallmanagernz/patches/raw/refs/heads/master/asterisk/cisco-usecallmanager-${PATCH_VERSION}.patch \
+    && patch -p1 < cisco-usecallmanager-${PATCH_VERSION}.patch
 
-# Remove build deps package and debug symbols
-RUN rm -f asterisk-build-deps_${ASTERISK_DEBIAN_VERSION}*
-RUN rm -f asterisk-*dbgsym_${ASTERISK_DEBIAN_VERSION}*
-RUN rm -f asterisk-{tests,dev,dahdi}_${ASTERISK_DEBIAN_VERSION}*
+# Install specific build dependencies and MP3 source
+RUN ./contrib/scripts/install_prereq install \
+    && ./contrib/scripts/get_mp3_source.sh
 
+# Configure and Build
+# Bundling pjproject prevents ABI conflicts with system libraries
+RUN ./configure \
+    --libdir=/usr/lib/x86_64-linux-gnu \
+    --with-pjproject-bundled \
+    --with-jansson-bundled \
+    --with-ssl=ssl \
+    --with-srtp \
+    && make menuselect.makeopts \
+    && menuselect/menuselect --enable format_mp3 menuselect.makeopts \
+    && make -j$(nproc) \
+    && make install DESTDIR=/tmp/asterisk-install \
+    && make samples DESTDIR=/tmp/asterisk-install \
+    && make config DESTDIR=/tmp/asterisk-install
+
+# -----------------------------------------------------------------------------
 # Stage 2: Runtime
+# -----------------------------------------------------------------------------
 FROM debian:${DEBIAN_VERSION}-slim
-ARG ASTERISK_DEBIAN_VERSION
 
-# Copy only the built .deb
-WORKDIR /opt
-COPY --from=builder /src/*.deb /tmp
+# Install runtime libraries and debug tools
+# Note: These libs must match what Asterisk linked against in the builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxml2 \
+    libsqlite3-0 \
+    libssl3 \
+    libncurses6 \
+    libuuid1 \
+    libedit2 \
+    libxslt1.1 \
+    liburiparser1 \
+    libcurl4 \
+    dnsutils \
+    tcpdump \
+    procps \
+    iputils-ping \
+    vim \
+    mpg123 \
+    gettext-base \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install the .deb
-RUN apt-get -y update && cd /tmp && \
-    apt-get install -y ./asterisk_${ASTERISK_DEBIAN_VERSION}_*.deb \
-    ./asterisk-config_${ASTERISK_DEBIAN_VERSION}_*.deb \
-    ./asterisk-modules_${ASTERISK_DEBIAN_VERSION}_*.deb \
-    ./asterisk-mp3_${ASTERISK_DEBIAN_VERSION}_*.deb && \
-    apt-get -y install --no-install-recommends dnsutils tcpdump ngrep procps iputils-ping vim mpg123 && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
-    apt-get clean
+# Create Asterisk user
+RUN groupadd -r asterisk && useradd -r -g asterisk -G audio,dialout asterisk
 
-RUN mkdir -p /etc/asterisk/pjsip.d /etc/asterisk/sip.d /etc/asterisk/extensions.d /var/run/asterisk /usr/share/asterisk/moh && \
-    chown -R asterisk:asterisk /etc/asterisk/pjsip.d /etc/asterisk/sip.d /etc/asterisk/extensions.d /var/run/asterisk /usr/share/asterisk/moh
+# Copy artifacts from builder
+COPY --from=builder /tmp/asterisk-install /
 
+# Setup permissions
+# Only changing ownership of directories that Asterisk writes to at runtime
+RUN mkdir -p /etc/asterisk/pjsip.d \
+    && chown -R asterisk:asterisk /etc/asterisk \
+                                  /var/lib/asterisk \
+                                  /var/run/asterisk \
+                                  /var/log/asterisk \
+                                  /var/spool/asterisk \
+                                  /usr/lib/x86_64-linux-gnu/asterisk
+
+# Copy local config and entrypoint
 COPY ./config/*.conf /etc/asterisk/
 COPY docker-entrypoint.sh /
 
-CMD ["bash", "-x", "/docker-entrypoint.sh"]
+RUN chmod +x /docker-entrypoint.sh
 
+WORKDIR /var/lib/asterisk
 EXPOSE 5060/udp 5060/tcp
+
+CMD ["/docker-entrypoint.sh"]
