@@ -1,7 +1,9 @@
 ARG DEBIAN_VERSION=trixie
+ARG DEBIAN_SNAPSHOT=20251126T082633Z
 ARG ASTERISK_DEBIAN_VERSION=22.6.0~dfsg+~cs6.15.60671435-1
 ARG PATCH_VERSION=22.6.0
 FROM debian:$DEBIAN_VERSION-slim AS builder
+ARG DEBIAN_SNAPSHOT
 ARG ASTERISK_DEBIAN_VERSION
 ARG PATCH_VERSION
 
@@ -20,7 +22,7 @@ RUN apt-get update && apt-get install -y \
 # Copy source code
 WORKDIR /src
 
-RUN dget https://deb.debian.org/debian/pool/main/a/asterisk/asterisk_$ASTERISK_DEBIAN_VERSION.dsc
+RUN dget https://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}/pool/main/a/asterisk/asterisk_$ASTERISK_DEBIAN_VERSION.dsc
 RUN wget https://github.com/usecallmanagernz/patches/raw/refs/heads/master/asterisk/cisco-usecallmanager-$PATCH_VERSION.patch
 
 RUN DEBIAN_FRONTEND=noninteractive mk-build-deps -i asterisk_${ASTERISK_DEBIAN_VERSION}.dsc --tool "apt-get -y"
