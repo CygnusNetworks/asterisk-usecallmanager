@@ -3,7 +3,7 @@
 Container image that builds and runs Asterisk with the cisco-usecallmanager patchset applied, plus defaults for SIP/PJSIP to include multiple config files. 
 Designed to let you drop your own Asterisk config in at runtime and have variables expanded automatically.
 
-**This image with version 22.6 is not yet intended for production. See https://usecallmanager.nz/change-log.html for details regarding `chan_sip` backport including changes to chan_sip.** 
+**This image with version 22.x is not yet intended for production. See https://usecallmanager.nz/change-log.html for details regarding `chan_sip` backport including changes to chan_sip.** 
 
 ## Overview
 - Base OS: Debian (slim).
