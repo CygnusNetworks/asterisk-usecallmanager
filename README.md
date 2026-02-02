@@ -20,7 +20,7 @@ This image consumes the patchset from the UseCallManager project:
 - Site: https://usecallmanager.nz/
 - Change log: https://usecallmanager.nz/change-log.html
 
-Hints and current state as of Asterisk 22.6 (Nov 2025):
+Hints and current state as of Asterisk 22.x (Nov 2025):
 - The UCM patchset continues to evolve for Asterisk 22.x; running patched Asterisk 22.x is generally not recommended for production unless you fully understand the implications and test thoroughly.
 - There have been backports and changes affecting `chan_sip` in the UCM patches. Read the change log linked above and validate your configuration.
 - `chan_sip` might be suitable for connection to Cisco Phones, pjsip for other SIP endpoints.
