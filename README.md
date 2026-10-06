@@ -23,7 +23,7 @@ Container image that builds and runs [Asterisk](https://www.asterisk.org/) with 
   - copies all files from `/config` into `/etc/asterisk`,
   - performs environment variable substitution (`envsubst`) on those copied files (except dialplan files),
   - starts Asterisk (or the command you pass to the container).
-- Health check: the container reports `healthy` once `asterisk -rx "core show uptime"` answers.
+- Health check: the container reports `healthy` once `asterisk -rx "core show uptime"` answers (if you run a custom command instead of Asterisk, the container will show up as `unhealthy`).
 
 ### Image tags and versioning
 Images are published to Docker Hub and the GitHub Container Registry:
