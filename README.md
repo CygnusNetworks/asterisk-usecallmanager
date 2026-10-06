@@ -7,6 +7,7 @@
 [![Image Size](https://img.shields.io/docker/image-size/cygnusnetworks/asterisk-usecallmanager/latest?arch=amd64)](https://hub.docker.com/r/cygnusnetworks/asterisk-usecallmanager/tags)
 [![Platforms](https://img.shields.io/badge/platforms-amd64%20%7C%20arm64-blue)](https://hub.docker.com/r/cygnusnetworks/asterisk-usecallmanager/tags)
 [![UseCallManager](https://img.shields.io/badge/patch-usecallmanager.nz-orange)](https://usecallmanager.nz/)
+[![License](https://img.shields.io/github/license/CygnusNetworks/asterisk-usecallmanager)](https://github.com/CygnusNetworks/asterisk-usecallmanager/blob/main/LICENSE)
 
 Container image that builds and runs [Asterisk](https://www.asterisk.org/) with the [UseCallManager](https://usecallmanager.nz/) (cisco-usecallmanager) patchset applied, for running Cisco IP phones (SIP firmware) against Asterisk. It ships defaults for SIP/PJSIP that include multiple config files, so you can drop your own Asterisk config in at runtime and have variables expanded automatically.
 
@@ -21,7 +22,8 @@ Container image that builds and runs [Asterisk](https://www.asterisk.org/) with 
   - auto-detects your public IPv4 address (unless you set it),
   - copies all files from `/config` into `/etc/asterisk`,
   - performs environment variable substitution (`envsubst`) on those copied files (except dialplan files),
-  - starts Asterisk.
+  - starts Asterisk (or the command you pass to the container).
+- Health check: the container reports `healthy` once `asterisk -rx "core show uptime"` answers.
 
 ### Image tags and versioning
 Images are published to Docker Hub and the GitHub Container Registry:
@@ -89,7 +91,8 @@ At container start, `/docker-entrypoint.sh` performs the following:
    - If `/docker-entrypoint.d/` exists, the script runs all executable files in it using `run-parts` before starting Asterisk. This is handy for last-mile tweaks.
 
 5. Ownership and start
-   - Key Asterisk directories are chowned to the runtime user and Asterisk is launched in the foreground.
+   - Key Asterisk directories are chowned to the runtime user (read-only mounts are skipped with a warning).
+   - Without arguments Asterisk is launched in the foreground as PID 1. If you pass a command (e.g. `docker run … cygnusnetworks/asterisk-usecallmanager bash`), the steps above run first and then your command is executed instead of Asterisk.
 
 Base configs are bundled under `/etc/asterisk` in the image (copied from this repo's [`config/`](https://github.com/CygnusNetworks/asterisk-usecallmanager/tree/main/config)). Any files you place in `/config` will override or augment those.
 
@@ -129,6 +132,7 @@ Runtime (entrypoint) variables:
 | `ASTERISK_UID` / `ASTERISK_GID` | – | Remap the user/group IDs (both must be set) |
 | `EXTERNAL_IP` | auto-detected | Public IPv4 address, available as `${EXTERNAL_IP}` in config files |
 | `IGNORE_EXTERNAL_IP_CHECK` | `false` | `true`/`1` skips the IP detection and does not exit if `EXTERNAL_IP` is unset |
+| `ENTRYPOINT_DEBUG` | `false` | `true`/`1` traces the entrypoint script (`set -x`) |
 
 Any additional variables you define can be used in your `.conf` files (expanded via `envsubst`), for example `SIP_BIND_ADDR`, `SIP_BIND_PORT`, `LOCAL_NET`.
 
@@ -226,7 +230,7 @@ docker build \
 - [`.github/scripts/update-version.sh`](https://github.com/CygnusNetworks/asterisk-usecallmanager/blob/main/.github/scripts/update-version.sh) determines all three values automatically for the newest patch and rewrites the Dockerfile.
 
 ## License
-This repository contains Docker build scripts and example configs. Asterisk itself is licensed under GPLv2; consult the Debian packaging and the UseCallManager project for their respective licenses.
+The Docker build scripts and configs in this repository are licensed under the [GNU General Public License v2.0](https://github.com/CygnusNetworks/asterisk-usecallmanager/blob/main/LICENSE), like Asterisk itself (several config files are derived from the Asterisk sample configs). Consult the Debian packaging and the UseCallManager project for their respective licenses.
 
 ## Credits
 
