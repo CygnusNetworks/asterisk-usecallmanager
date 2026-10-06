@@ -5,6 +5,13 @@ on:
   push:
     tags:
       - 'v*'
+  # Called by auto-update.yml (tags pushed with GITHUB_TOKEN do not trigger workflows)
+  workflow_call:
+    inputs:
+      tag:
+        description: Git tag to build and publish (e.g. v22.11.0)
+        type: string
+        required: true
 
 env:
   REGISTRY: ghcr.io
@@ -22,6 +29,8 @@ jobs:
       # Checkout the repository
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Compute Docker Hub image name (lowercase)
         env:
@@ -63,6 +72,7 @@ jobs:
             docker.io/${{ env.DOCKERHUB_IMAGE }}
           tags: |
             type=ref,event=tag
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=raw,value=latest
 
       - name: Build and push Docker image

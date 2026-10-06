@@ -1,0 +1,63 @@
+name: Auto-update to new UCM patch version
+
+# Checks usecallmanagernz/patches for a newer asterisk patch. Once Debian also
+# ships the matching asterisk source package, the Dockerfile is updated, a
+# version tag is pushed and the image is built and released.
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: auto-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.update.outputs.changed }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Look for new patch and matching Debian package
+        id: update
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: .github/scripts/update-version.sh | tee -a "$GITHUB_OUTPUT"
+
+      - name: Commit and tag
+        id: tag
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          tag="v${{ steps.update.outputs.patch_version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Change Patch version to ${{ steps.update.outputs.patch_version }}"
+          git tag "$tag"
+          git push origin HEAD "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: update
+    if: needs.update.outputs.changed == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      tag: ${{ needs.update.outputs.tag }}
+    secrets: inherit
+
+  release:
+    needs: [update, build]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/create-release.yml
+    with:
+      tag: ${{ needs.update.outputs.tag }}
+    secrets: inherit
