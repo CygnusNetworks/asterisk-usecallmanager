@@ -22,7 +22,7 @@ jobs:
       changed: ${{ steps.update.outputs.changed }}
       tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Look for new patch and matching Debian package
         id: update
