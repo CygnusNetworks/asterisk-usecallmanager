@@ -27,9 +27,11 @@ jobs:
           REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           DOCKER_USER_LC=$(echo "${{ secrets.DOCKER_USERNAME }}" | tr '[:upper:]' '[:lower:]')
           REPO_NAME_LC=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-          echo "TAG=${TAG}" >> "$GITHUB_ENV"
-          echo "GHCR_IMAGE=ghcr.io/${REPO_LC}:${TAG}" >> "$GITHUB_ENV"
-          echo "DOCKERHUB_IMAGE=${DOCKER_USER_LC}/${REPO_NAME_LC}:${TAG}" >> "$GITHUB_ENV"
+          {
+            echo "TAG=${TAG}"
+            echo "GHCR_IMAGE=ghcr.io/${REPO_LC}:${TAG}"
+            echo "DOCKERHUB_IMAGE=${DOCKER_USER_LC}/${REPO_NAME_LC}:${TAG}"
+          } >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -47,5 +49,5 @@ jobs:
             ```
             docker pull ${{ env.GHCR_IMAGE }}
             ```
-          generate_notes: true
+          generate_release_notes: true
           make_latest: true

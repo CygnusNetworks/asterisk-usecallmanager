@@ -1,7 +1,7 @@
 name: Docker Build and Push
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -13,38 +13,45 @@ on:
         type: string
         required: true
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+# Each platform is built natively on its own runner (no QEMU) and pushed by
+# digest to GHCR and Docker Hub. The merge job then creates the multi-arch
+# manifest lists with the final tags in both registries.
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
 
     permissions:
       contents: read
       packages: write  # Needed to push to GHCR
 
     steps:
-      # Checkout the repository
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Compute Docker Hub image name (lowercase)
+      - name: Compute image names (lowercase)
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
-          # Lowercase Docker Hub username and repo name
           uname_lc=$(printf "%s" "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
-          repo_name=${GITHUB_REPOSITORY#*/}
-          repo_lc=$(printf "%s" "$repo_name" | tr '[:upper:]' '[:lower:]')
-          echo "DOCKERHUB_IMAGE=${uname_lc}/${repo_lc}" >> "$GITHUB_ENV"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+          repo_lc=$(printf "%s" "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          {
+            echo "GHCR_IMAGE=ghcr.io/${repo_lc}"
+            echo "DOCKERHUB_IMAGE=docker.io/${uname_lc}/${repo_lc#*/}"
+            echo "PLATFORM_PAIR=${PLATFORM//\//-}"
+          } >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -52,34 +59,121 @@ jobs:
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Log in to Docker Hub
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for Docker
+      - name: Extract metadata (labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-            docker.io/${{ env.DOCKERHUB_IMAGE }}
+            ${{ env.GHCR_IMAGE }}
+            ${{ env.DOCKERHUB_IMAGE }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,"name=${{ env.GHCR_IMAGE }},${{ env.DOCKERHUB_IMAGE }}",push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      contents: read
+      packages: write  # Needed to push to GHCR
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Compute image names (lowercase)
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          set -euo pipefail
+          uname_lc=$(printf "%s" "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
+          repo_lc=$(printf "%s" "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          {
+            echo "GHCR_IMAGE=ghcr.io/${repo_lc}"
+            echo "DOCKERHUB_IMAGE=docker.io/${uname_lc}/${repo_lc#*/}"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Extract metadata (tags, annotations) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with:
+          images: |
+            ${{ env.GHCR_IMAGE }}
+            ${{ env.DOCKERHUB_IMAGE }}
           tags: |
             type=ref,event=tag
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=raw,value=latest
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
+      - name: Create and push manifest lists
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          set -euo pipefail
+          for image in "$GHCR_IMAGE" "$DOCKERHUB_IMAGE"; do
+            args=()
+            while IFS= read -r tag; do args+=(-t "$tag"); done \
+              < <(jq -r --arg img "$image" '.tags[] | select(startswith($img + ":"))' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+            while IFS= read -r annotation; do args+=(--annotation "$annotation"); done \
+              < <(jq -r '.annotations[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+            for digest in *; do args+=("${image}@sha256:${digest}"); done
+            docker buildx imagetools create "${args[@]}"
+          done
 
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect "${GHCR_IMAGE}:latest"
+          docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:latest"
