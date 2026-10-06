@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e # Fail immediately if any command fails
+[[ "${ENTRYPOINT_DEBUG}" == "true" || "${ENTRYPOINT_DEBUG}" == "1" ]] && set -x
 
 echo "Starting Asterisk Entrypoint"
 
@@ -29,24 +30,25 @@ if [ -d "$CONFIG_SRC" ]; then
     echo "Processing configuration files from $CONFIG_SRC..."
     
     # 1. Detect External IP Address
-    echo "Detecting external ip address..."
-    export EXTERNAL_IP=$(dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')
-    
-    if [ -z "${EXTERNAL_IP}" ]; then
+    if [ -n "${EXTERNAL_IP}" ]; then
+        echo "External ip set via environment variable."
+    elif [[ "${IGNORE_EXTERNAL_IP_CHECK}" == "true" || "${IGNORE_EXTERNAL_IP_CHECK}" == "1" ]]; then
+        echo "EXTERNAL_IP not set, detection skipped (IGNORE_EXTERNAL_IP_CHECK=${IGNORE_EXTERNAL_IP_CHECK})."
+    else
         # If EXTERNAL_IP is NOT provided, attempt detection
         echo "EXTERNAL_IP not set. Detecting address..."
-        export EXTERNAL_IP=$(dig -4 TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"')
-        
+        EXTERNAL_IP=$(dig -4 TXT +short +time=3 +tries=2 o-o.myaddr.l.google.com @ns1.google.com | tr -d '"' || true)
+
         if [ -z "$EXTERNAL_IP" ]; then
             echo "Error: Unable to detect external ip address. Exiting."
             echo "To fix this, provide it as an environment variable: -e EXTERNAL_IP=1.2.3.4"
+            echo "or set -e IGNORE_EXTERNAL_IP_CHECK=true if your config does not use \${EXTERNAL_IP}."
             exit 1
         fi
-    else
-        echo "External ip set via environment variable."
     fi
-    
-    echo "External ip is ${EXTERNAL_IP}"
+    export EXTERNAL_IP
+
+    echo "External ip is ${EXTERNAL_IP:-<unset>}"
     
     # 2. Process Files
     find "$CONFIG_SRC" -type f | while read -r file; do
@@ -60,7 +62,7 @@ if [ -d "$CONFIG_SRC" ]; then
         # Check if file is extensions.conf or inside extensions.d directory
         if [[ "$rel_path" == "extensions.conf" ]] || [[ "$rel_path" == extensions.d/* ]]; then
             echo "  - Not performing envsubst: $rel_path"
-            # Only substitute TWILIO_EXTENSION in dialplan files
+            # Dialplan files use ${...} themselves, copy them verbatim
             cp "$file" "$dest_file"
         else
             echo "  - Full envsubst: $rel_path"
@@ -85,7 +87,8 @@ chown -R "${ASTERISK_USER}:${ASTERISK_GROUP}" \
     /etc/asterisk \
     /var/lib/asterisk \
     /var/run/asterisk \
-    /var/spool/asterisk
+    /var/spool/asterisk \
+    || echo "Warning: could not change ownership of some files (read-only mounts?), continuing."
 
 # --- Execution ---
 echo "Starting Asterisk..."

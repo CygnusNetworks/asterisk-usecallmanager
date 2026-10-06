@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 ARG DEBIAN_VERSION=trixie
 ARG DEBIAN_SNAPSHOT=20260615T023212Z
 ARG ASTERISK_DEBIAN_VERSION=22.10.0+dfsg+~cs6.17.60671434-1
@@ -28,21 +29,23 @@ RUN wget https://github.com/usecallmanagernz/patches/raw/refs/heads/master/aster
 RUN DEBIAN_FRONTEND=noninteractive mk-build-deps -i asterisk_${ASTERISK_DEBIAN_VERSION}.dsc --tool "apt-get -y"
 RUN UNPACK_DIR=$(ls -d */) && cd $UNPACK_DIR && quilt pop -a && quilt import -P cisco-usecallmanager ../cisco-usecallmanager-${PATCH_VERSION}.patch && quilt push -a && dpkg-buildpackage -us -uc -b
 
-# Remove build deps package and debug symbols
-RUN rm -f asterisk-build-deps_${ASTERISK_DEBIAN_VERSION}*
-RUN rm -f asterisk-*dbgsym_${ASTERISK_DEBIAN_VERSION}*
-RUN rm -f asterisk-{tests,dev,dahdi}_${ASTERISK_DEBIAN_VERSION}*
-
 # Stage 2: Runtime
 FROM debian:${DEBIAN_VERSION}-slim
 ARG ASTERISK_DEBIAN_VERSION
+ARG PATCH_VERSION
 
-# Copy only the built .deb
+LABEL org.opencontainers.image.title="asterisk-usecallmanager" \
+      org.opencontainers.image.description="Asterisk with usecallmanager.nz patch for Cisco IP Phones" \
+      org.opencontainers.image.source="https://github.com/CygnusNetworks/asterisk-usecallmanager" \
+      org.opencontainers.image.vendor="Cygnus Networks" \
+      org.opencontainers.image.version="${PATCH_VERSION}"
+
 WORKDIR /opt
-COPY --from=builder /src/*.deb /tmp
 
-# Install the .deb
-RUN apt-get -y update && cd /tmp && \
+# Install the built .debs straight from the builder stage (bind mount, so the
+# packages do not end up in an image layer)
+RUN --mount=type=bind,from=builder,source=/src,target=/debs \
+    apt-get -y update && cd /debs && \
     apt-get install -y ./asterisk_${ASTERISK_DEBIAN_VERSION}_*.deb \
     ./asterisk-config_${ASTERISK_DEBIAN_VERSION}_*.deb \
     ./asterisk-modules_${ASTERISK_DEBIAN_VERSION}_*.deb \
@@ -51,12 +54,18 @@ RUN apt-get -y update && cd /tmp && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
     apt-get clean
 
-RUN mkdir -p /etc/asterisk/pjsip.d /etc/asterisk/sip.d /etc/asterisk/extensions.d /var/run/asterisk /usr/share/asterisk/moh && \
-    chown -R asterisk:asterisk /etc/asterisk/pjsip.d /etc/asterisk/sip.d /etc/asterisk/extensions.d /var/run/asterisk /usr/share/asterisk/moh
+RUN mkdir -p /etc/asterisk/pjsip.d /etc/asterisk/sip.d /etc/asterisk/extensions.d /etc/asterisk/ari.d /var/run/asterisk /usr/share/asterisk/moh && \
+    chown -R asterisk:asterisk /etc/asterisk/pjsip.d /etc/asterisk/sip.d /etc/asterisk/extensions.d /etc/asterisk/ari.d /var/run/asterisk /usr/share/asterisk/moh
 
 COPY ./config/*.conf /etc/asterisk/
-COPY docker-entrypoint.sh /
+COPY --chmod=755 docker-entrypoint.sh /
 
-CMD ["bash", "-x", "/docker-entrypoint.sh"]
+# Without arguments the entrypoint starts Asterisk, otherwise it runs the given
+# command after the config processing
+ENTRYPOINT ["/docker-entrypoint.sh"]
 
-EXPOSE 5060/udp 5060/tcp
+# SIP signaling and the RTP range configured in config/rtp.conf
+EXPOSE 5060/udp 5060/tcp 10000-10020/udp
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD asterisk -rx "core show uptime" | grep -q "System uptime" || exit 1

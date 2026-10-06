@@ -1,1 +1,6 @@
 .idea/
+
+# build/test leftovers (dget, patch downloads)
+*.dsc
+*.patch
+*.deb
